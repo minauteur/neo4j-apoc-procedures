@@ -66,6 +66,8 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import javax.lang.model.SourceVersion;
 
+import org.neo4j.configuration.Config;
+import org.neo4j.configuration.connectors.BoltConnector;
 import org.neo4j.graphdb.Direction;
 import org.neo4j.graphdb.Entity;
 import org.neo4j.graphdb.GraphDatabaseService;
@@ -696,23 +698,11 @@ public class Util {
     }
 
     public static boolean isWriteableInstance(GraphDatabaseAPI db) {
-        try {
-            try {
-                Class hadb = Class.forName("org.neo4j.kernel.ha.HighlyAvailableGraphDatabase");
-                boolean isSlave = hadb.isInstance(db) && !((Boolean)hadb.getMethod("isMaster").invoke(db));
-                if (isSlave) return false;
-            } catch (ClassNotFoundException | IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
-                /* ignore */
-            }
-
-            String role = db.executeTransactionally("CALL dbms.cluster.role($databaseName)",
-                    Collections.singletonMap("databaseName", db.databaseName()),
-                    result -> Iterators.single(result.columnAs("role")));
-            return role.equalsIgnoreCase("LEADER");
-        } catch(QueryExecutionException e) {
-            if (e.getStatusCode().equalsIgnoreCase("Neo.ClientError.Procedure.ProcedureNotFound")) return true;
-            throw e;
-        }
+        var socketAddress = db.getDependencyResolver().resolveDependency( Config.class ).get( BoltConnector.advertised_address ).toString();
+        String role = db.executeTransactionally("SHOW DATABASE $databaseName WHERE address = $socketAddress",
+                Map.of("databaseName", db.databaseName(), "socketAddress", socketAddress),
+                result -> Iterators.single(result.columnAs("role")));
+        return role.equalsIgnoreCase("LEADER");
     }
 
     /**
